@@ -1,0 +1,107 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'career_recommendation_system/backend/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'career_recommendation_system/backend/**'
+
+jobs:
+  lint-and-test:
+    name: Lint, Type Check & Test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: career_recommendation_system/backend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+          pip install -r requirements.txt
+          pip install email-validator
+
+      - name: Lint Code (Black Formatting check)
+        run: |
+          black --check app tests run.py || echo "Warning: Code format checks failed. Please run 'black .'"
+
+      - name: Lint Code (Flake8 syntax errors check)
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings.
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Create Test Environment Config
+        run: |
+          echo 'SECRET_KEY="github-ci-runner-test-secret-key-1234567890-github"' > .env
+          echo 'DATABASE_URL="sqlite:///./database/test_career_system.db"' >> .env
+          echo 'OLLAMA_HOST="http://localhost:11434"' >> .env
+          echo 'OLLAMA_MODEL="llama3"' >> .env
+          echo 'ADZUNA_APP_ID="mock_id"' >> .env
+          echo 'ADZUNA_API_KEY="mock_key"' >> .env
+
+      - name: Run Integration Tests
+        run: |
+          export PYTHONPATH="."
+          python tests/test_backend.py
+
+  build-docker-image:
+    name: Build & Verify Docker Container
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    defaults:
+      run:
+        working-directory: career_recommendation_system/backend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: actions/setup-docker-action@v2
+        continue-on-error: true # Safe fallback if custom action setup has runner restrictions
+
+      - name: Build Docker Image
+        run: |
+          docker build -t career-recommendation-backend:${{ github.sha }} .
+
+      - name: Verify Docker Container Runs
+        run: |
+          docker run -d -p 8000:8000 --name test-container \
+            -e SECRET_KEY="docker-verify-secret-key" \
+            -e DATABASE_URL="sqlite:///./database/career_system.db" \
+            -e OLLAMA_HOST="http://localhost:11434" \
+            -e OLLAMA_MODEL="llama3" \
+            -e ADZUNA_APP_ID="mock_id" \
+            -e ADZUNA_API_KEY="mock_key" \
+            career-recommendation-backend:${{ github.sha }}
+          
+          # Wait for container startup
+          sleep 5
+          
+          # Query backend health endpoint
+          curl -f http://localhost:8000/ || exit 1
+          
+          # Clean up
+          docker stop test-container
+          docker rm test-container
