@@ -78,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: actions/setup-docker-action@v2
+        uses: docker/setup-buildx-action@v3
         continue-on-error: true # Safe fallback if custom action setup has runner restrictions
 
       - name: Build Docker Image
