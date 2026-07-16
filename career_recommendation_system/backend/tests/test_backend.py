@@ -100,7 +100,7 @@ class TestBackendApp(unittest.TestCase):
 
         # 5. Fetch current user without token should fail
         me_fail = self.client.get("/auth/me")
-        self.assertEqual(me_fail.status_code, 403)
+        self.assertEqual(me_fail.status_code, 401)
 
     def test_02_profile_management(self):
         # Register and login to get auth token
