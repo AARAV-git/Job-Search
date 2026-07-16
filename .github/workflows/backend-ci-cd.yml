@@ -90,20 +90,33 @@ jobs:
       - name: Verify Docker Container Runs
         run: |
           docker run -d -p 8000:8000 --name test-container \
-            -e SECRET_KEY="docker-verify-secret-key" \
-            -e DATABASE_URL="sqlite:///./database/career_system.db" \
-            -e OLLAMA_HOST="http://localhost:11434" \
-            -e OLLAMA_MODEL="llama3" \
-            -e ADZUNA_APP_ID="mock_id" \
-            -e ADZUNA_API_KEY="mock_key" \
+            -e SECRET_KEY=docker-verify-secret-key \
+            -e DATABASE_URL=sqlite:///./database/career_system.db \
+            -e OLLAMA_HOST=http://localhost:11434 \
+            -e OLLAMA_MODEL=llama3 \
+            -e ADZUNA_APP_ID=mock_id \
+            -e ADZUNA_API_KEY=mock_key \
             career-recommendation-backend:${{ github.sha }}
-          
-          # Wait for container startup
-          sleep 5
-          
-          # Query backend health endpoint
-          curl -f http://localhost:8000/ || exit 1
-          
+
+          # Wait for container to become healthy (up to 30 seconds)
+          echo "Waiting for backend to become ready..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/ > /dev/null 2>&1; then
+              echo "Backend is up after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Backend did not start in time. Container logs:"
+              docker logs test-container
+              docker stop test-container && docker rm test-container
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Final health check
+          curl -f http://localhost:8000/
+
           # Clean up
           docker stop test-container
           docker rm test-container
